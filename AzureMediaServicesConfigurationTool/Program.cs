@@ -4,30 +4,37 @@ using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading.Tasks;
 
 using Microsoft.WindowsAzure.MediaServices.Client;
 using Microsoft.WindowsAzure.MediaServices.Client.ContentKeyAuthorization;
 using Microsoft.WindowsAzure.MediaServices.Client.DynamicEncryption;
+using Microsoft.WindowsAzure.MediaServices.Client.FairPlay;
+using Newtonsoft.Json;
 
 namespace AzureMediaServicesConfigurationTool
 {
     public class Program
     {
-        private static string ContentKeyAuthorizationPolicyRestrictionName = "jwt_content_key_authorization_policy_restriction";
+        private const string ContentKeyPrefix = "nb:ckpid:UUID:";
+        private const string ContentKeyAuthorizationPolicyRestrictionName = "jwt_content_key_authorization_policy_restriction";
 
-        private static string CommonEncryptionContentKeyName = "common_encryption_content_key";
-        private static int CommonEncryptionContentKeyLength = 16;
+        private const string CommonEncryptionContentKeyName = "common_encryption_content_key";
+        private const string CommonEncryptionCbcsContentKeyName = "common_encryption_cbcs_content_key";
+        private const int CommonEncryptionContentKeyLength = 16;
 
         public static async Task Main(string[] args)
         {
+            // TODO: Add console logs
+
             var context = CreateCloudMediaContext();
 
             // TODO: Scale Streaming Endpoint?
             // TODO: Scale Encoding Units?
 
-            var jwtRestriction = GetContentKeyAuthorizationPolicyRestriction();
-            var restrictions = new List<ContentKeyAuthorizationPolicyRestriction> { jwtRestriction };
+            var restrictions = new List<ContentKeyAuthorizationPolicyRestriction> { GetContentKeyAuthorizationPolicyRestriction() };
 
             // Configure Common Encryption polices: Widevine + PlayReady
             await CreateCommonEncryptionPoliciesAsync(context, restrictions);
@@ -117,7 +124,7 @@ namespace AzureMediaServicesConfigurationTool
             }
 
             // Asset Delivery Policy
-            var commonEncryptionKey = await CreateCommonEncryptionContentKey(context);
+            var commonEncryptionKey = await CreateCommonEncryptionContentKeyAsync(context);
             var playReadyLicenseAcquisitionUri = await commonEncryptionKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.PlayReadyLicense);
             var widevineUri = (new UriBuilder(await commonEncryptionKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.Widevine)) { Query = string.Empty }).Uri;
             await commonEncryptionKey.DeleteAsync();
@@ -147,10 +154,66 @@ namespace AzureMediaServicesConfigurationTool
             }
         }
 
-        private static Task CreateCommonEncryptionCbcsPoliciesAsync(MediaContextBase context, List<ContentKeyAuthorizationPolicyRestriction> restrictions)
+        private static async Task CreateCommonEncryptionCbcsPoliciesAsync(MediaContextBase context, List<ContentKeyAuthorizationPolicyRestriction> restrictions)
         {
-            // TODO
-            throw new NotImplementedException();
+            // Content Key Authorization Policy
+            var authorizationPolicyName = ConfigurationManager.AppSettings["CommonEncryptionCbcsAuthorizationPolicyName"];
+            var authorizationPolicy = context.ContentKeyAuthorizationPolicies.Where(p => p.Name == authorizationPolicyName).FirstOrDefault();
+            if (authorizationPolicy == null)
+            {
+                authorizationPolicy = await context.ContentKeyAuthorizationPolicies.CreateAsync(authorizationPolicyName);
+            }
+
+            var fairPlayAuthorizationPolicyOptionName = ConfigurationManager.AppSettings["FairPlayAuthorizationPolicyOptionName"];
+            var fairPlayConfiguration = await GetFairPlayConfigurationAsync(context);
+            var fariPlayAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == fairPlayAuthorizationPolicyOptionName).FirstOrDefault();
+            if (fariPlayAuthorizationPolicyOption == null)
+            {
+                fariPlayAuthorizationPolicyOption = await context.ContentKeyAuthorizationPolicyOptions.CreateAsync(
+                    fairPlayAuthorizationPolicyOptionName,
+                    ContentKeyDeliveryType.FairPlay,
+                    restrictions,
+                    JsonConvert.SerializeObject(fairPlayConfiguration));
+
+                authorizationPolicy.Options.Add(fariPlayAuthorizationPolicyOption);
+            }
+            else
+            {
+                fariPlayAuthorizationPolicyOption.KeyDeliveryType = ContentKeyDeliveryType.FairPlay;
+                fariPlayAuthorizationPolicyOption.Restrictions = restrictions;
+                fariPlayAuthorizationPolicyOption.KeyDeliveryConfiguration = JsonConvert.SerializeObject(fairPlayConfiguration);
+
+                await fariPlayAuthorizationPolicyOption.UpdateAsync();
+            }
+
+            // Asset Delivery Policy
+            var commonEncryptionCbcsKey = await CreateCommonEncryptionCbcsContentKeyAsync(context);
+            var acquisitionUri = commonEncryptionCbcsKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.FairPlay);
+            await commonEncryptionCbcsKey.DeleteAsync();
+
+            var deliveryPolicyConfiguration = new Dictionary<AssetDeliveryPolicyConfigurationKey, string>
+            {
+                { AssetDeliveryPolicyConfigurationKey.FairPlayLicenseAcquisitionUrl, acquisitionUri.ToString().Replace("https://", "skd://") },
+                { AssetDeliveryPolicyConfigurationKey.CommonEncryptionIVForCbcs, fairPlayConfiguration.ContentEncryptionIV }
+            };
+            var deliveryPolicyName = ConfigurationManager.AppSettings["DynamicCommonEncryptionCbcsDeliveryPolicyName"];
+            var deliveryPolicy = context.AssetDeliveryPolicies.Where(p => p.Name == deliveryPolicyName).FirstOrDefault();
+            if (deliveryPolicy == null)
+            {
+                deliveryPolicy = await context.AssetDeliveryPolicies.CreateAsync(
+                    deliveryPolicyName,
+                    AssetDeliveryPolicyType.DynamicCommonEncryptionCbcs,
+                    AssetDeliveryProtocol.HLS,
+                    deliveryPolicyConfiguration);
+            }
+            else
+            {
+                deliveryPolicy.AssetDeliveryPolicyType = AssetDeliveryPolicyType.DynamicCommonEncryptionCbcs;
+                deliveryPolicy.AssetDeliveryProtocol = AssetDeliveryProtocol.HLS;
+                deliveryPolicy.AssetDeliveryConfiguration = deliveryPolicyConfiguration;
+
+                await deliveryPolicy.UpdateAsync();
+            }
         }
 
         private static string GetJwtRequirements()
@@ -161,7 +224,7 @@ namespace AzureMediaServicesConfigurationTool
 
             var template = new TokenRestrictionTemplate(TokenType.JWT)
             {
-                PrimaryVerificationKey = new SymmetricVerificationKey(EncodeUtilities.Base64UrlDecode(primaryVerificationKey)),
+                PrimaryVerificationKey = new SymmetricVerificationKey(Convert.FromBase64String(primaryVerificationKey)),
                 Audience = audience,
                 Issuer = issuer
             };
@@ -169,12 +232,20 @@ namespace AzureMediaServicesConfigurationTool
             return TokenRestrictionTemplateSerializer.Serialize(template);
         }
 
-        private static async Task<IContentKey> CreateCommonEncryptionContentKey(MediaContextBase context)
+        private static async Task<IContentKey> CreateCommonEncryptionContentKeyAsync(MediaContextBase context)
         {
             var keyId = Guid.NewGuid();
             var contentKey = GetRandomBuffer(CommonEncryptionContentKeyLength);
 
             return await context.ContentKeys.CreateAsync(keyId, contentKey, CommonEncryptionContentKeyName, ContentKeyType.CommonEncryption);
+        }
+
+        private static async Task<IContentKey> CreateCommonEncryptionCbcsContentKeyAsync(MediaContextBase context)
+        {
+            var keyId = Guid.NewGuid();
+            var contentKey = GetRandomBuffer(CommonEncryptionContentKeyLength);
+
+            return await context.ContentKeys.CreateAsync(keyId, contentKey, CommonEncryptionCbcsContentKeyName, ContentKeyType.CommonEncryptionCbcs);
         }
 
         private static byte[] GetRandomBuffer(int length)
@@ -201,6 +272,73 @@ namespace AzureMediaServicesConfigurationTool
             var playReadyLicenseTemplatePath = ConfigurationManager.AppSettings["PlayReadyLicenseTemplatePath"];
 
             return File.ReadAllText(playReadyLicenseTemplatePath);
+        }
+
+        private static async Task<FairPlayConfiguration> GetFairPlayConfigurationAsync(MediaContextBase context)
+        {
+            var previousAskKey = default(IContentKey);
+            var askKeyId = Guid.NewGuid();
+            var askKeyName = ConfigurationManager.AppSettings["FairPlayASKContentKeyName"];
+            var askBytes = Encoding.UTF8.GetBytes(ConfigurationManager.AppSettings["FairPlayASK"]);
+            var askKey = context.ContentKeys.Where(k => k.Name == askKeyName).FirstOrDefault();
+            if (askKey == null)
+            {
+                askKey = await context.ContentKeys.CreateAsync(askKeyId, askBytes, askKeyName, ContentKeyType.FairPlayASk);
+            }
+            else
+            {
+                if (!askBytes.SequenceEqual(await askKey.GetClearKeyValueAsync()) || (askKey.ContentKeyType != ContentKeyType.FairPlayASk))
+                {
+                    previousAskKey = askKey;
+
+                    askKey = await context.ContentKeys.CreateAsync(askKeyId, askBytes, askKeyName, ContentKeyType.FairPlayASk);
+                }
+
+                askKeyId = Guid.Parse(askKey.Id.Replace(ContentKeyPrefix, string.Empty));
+            }
+
+            var previousAppCertPasswordKey = default(IContentKey);
+            var appCertPasswordKeyId = Guid.NewGuid();
+            var appCertPasswordKeyName = ConfigurationManager.AppSettings["FairPlayAppCertPasswordContentKeyName"];
+            var appCertPassword = ConfigurationManager.AppSettings["FairPlayAppCertPassword"];
+            var appCertPasswordBytes = Encoding.UTF8.GetBytes(appCertPassword);
+            var appCertPasswordKey = context.ContentKeys.Where(k => k.Name == appCertPasswordKeyName).FirstOrDefault();
+            if (appCertPasswordKey == null)
+            {
+                appCertPasswordKey = await context.ContentKeys.CreateAsync(appCertPasswordKeyId, appCertPasswordBytes, appCertPasswordKeyName, ContentKeyType.FairPlayPfxPassword);
+            }
+            else
+            {
+                if (!appCertPasswordBytes.SequenceEqual(await appCertPasswordKey.GetClearKeyValueAsync()) || (appCertPasswordKey.ContentKeyType != ContentKeyType.FairPlayPfxPassword))
+                {
+                    previousAppCertPasswordKey = appCertPasswordKey;
+
+                    appCertPasswordKey = await context.ContentKeys.CreateAsync(appCertPasswordKeyId, appCertPasswordBytes, appCertPasswordKeyName, ContentKeyType.FairPlayPfxPassword);
+                }
+
+                appCertPasswordKeyId = Guid.Parse(appCertPasswordKey.Id.Replace(ContentKeyPrefix, string.Empty));
+            }
+
+            var iv = Guid.NewGuid().ToByteArray();
+            var appCert = new X509Certificate2(ConfigurationManager.AppSettings["FairPlayAppCertPath"], appCertPassword, X509KeyStorageFlags.Exportable);
+            var configuration = FairPlayConfiguration.CreateSerializedFairPlayOptionConfiguration(
+                appCert,
+                appCertPassword,
+                appCertPasswordKeyId,
+                askKeyId,
+                iv);
+
+            if (previousAskKey != null)
+            {
+                await previousAskKey.DeleteAsync();
+            }
+
+            if (previousAppCertPasswordKey != null)
+            {
+                await previousAppCertPasswordKey.DeleteAsync();
+            }
+
+            return JsonConvert.DeserializeObject<FairPlayConfiguration>(configuration);
         }
     }
 }
