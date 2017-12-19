@@ -14,10 +14,10 @@ namespace AzureMediaServicesConfigurationTool
 {
     public class Program
     {
-        private static string ContentKeyAuthorizationPolicyRestrictionName = "JwtContentKeyAuthorizationPolicyRestriction";
+        private static string ContentKeyAuthorizationPolicyRestrictionName = "jwt_content_key_authorization_policy_restriction";
 
+        private static string CommonEncryptionContentKeyName = "common_encryption_content_key";
         private static int CommonEncryptionContentKeyLength = 16;
-        private static string CommonEncryptionContentKeyName = "CommonEncryptionContentKey";
 
         public static async Task Main(string[] args)
         {
@@ -32,7 +32,8 @@ namespace AzureMediaServicesConfigurationTool
             // Configure Common Encryption polices: Widevine + PlayReady
             await CreateCommonEncryptionPoliciesAsync(context, restrictions);
 
-            // TODO: Configure Common Encryption CBCS polices: FairPlay
+            // Configure Common Encryption CBCS polices: FairPlay
+            await CreateCommonEncryptionCbcsPoliciesAsync(context, restrictions);
         }
 
         private static CloudMediaContext CreateCloudMediaContext()
@@ -61,22 +62,6 @@ namespace AzureMediaServicesConfigurationTool
             };
         }
 
-        private static string GetJwtRequirements()
-        {
-            var primaryVerificationKey = ConfigurationManager.AppSettings["JWTRestrictionPrimaryVerificationKey"];
-            var audience = ConfigurationManager.AppSettings["JWTRestrictionAudience"];
-            var issuer = ConfigurationManager.AppSettings["JWTRestrictionIssuer"];
-
-            var template = new TokenRestrictionTemplate(TokenType.JWT)
-            {
-                PrimaryVerificationKey = new SymmetricVerificationKey(EncodeUtilities.Base64UrlDecode(primaryVerificationKey)),
-                Audience = audience,
-                Issuer = issuer
-            };
-
-            return TokenRestrictionTemplateSerializer.Serialize(template);
-        }
-
         private static async Task CreateCommonEncryptionPoliciesAsync(MediaContextBase context, List<ContentKeyAuthorizationPolicyRestriction> restrictions)
         {
             // Content Key Authorization Policy
@@ -88,8 +73,7 @@ namespace AzureMediaServicesConfigurationTool
             }
 
             var widevineAuthorizationPolicyOptionName = ConfigurationManager.AppSettings["WidevineAuthorizationPolicyOptionName"];
-            var widevineLicenseTemplatePath = ConfigurationManager.AppSettings["WidevineLicenseTemplatePath"];
-            var widevineLicenseTemplate = File.ReadAllText(widevineLicenseTemplatePath);
+            var widevineLicenseTemplate = GetWidevineLicenseTemplateConfiguration();
             var widevineAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == widevineAuthorizationPolicyOptionName).FirstOrDefault();
             if (widevineAuthorizationPolicyOption == null)
             {
@@ -111,8 +95,7 @@ namespace AzureMediaServicesConfigurationTool
             }
 
             var playReadyAuthorizationPolicyOptionName = ConfigurationManager.AppSettings["PlayReadyAuthorizationPolicyOptionName"];
-            var playReadyLicenseTemplatePath = ConfigurationManager.AppSettings["PlayReadyLicenseTemplatePath"];
-            var playReadyLicenseTemplate = File.ReadAllText(playReadyLicenseTemplatePath);
+            var playReadyLicenseTemplate = GetPlayReadyLicenseTemplateConfiguration();
             var playReadyAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == playReadyAuthorizationPolicyOptionName).FirstOrDefault();
             if (playReadyAuthorizationPolicyOption == null)
             {
@@ -134,7 +117,7 @@ namespace AzureMediaServicesConfigurationTool
             }
 
             // Asset Delivery Policy
-            var commonEncryptionKey = await GetOrCreateCommonEncryptionContentKey(context);
+            var commonEncryptionKey = await CreateCommonEncryptionContentKey(context);
             var playReadyLicenseAcquisitionUri = await commonEncryptionKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.PlayReadyLicense);
             var widevineUri = (new UriBuilder(await commonEncryptionKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.Widevine)) { Query = string.Empty }).Uri;
             await commonEncryptionKey.DeleteAsync();
@@ -164,19 +147,34 @@ namespace AzureMediaServicesConfigurationTool
             }
         }
 
-        private static async Task<IContentKey> GetOrCreateCommonEncryptionContentKey(MediaContextBase context)
+        private static Task CreateCommonEncryptionCbcsPoliciesAsync(MediaContextBase context, List<ContentKeyAuthorizationPolicyRestriction> restrictions)
         {
-            var key = context.ContentKeys.Where(c => c.ContentKeyType == ContentKeyType.CommonEncryption).FirstOrDefault();
+            // TODO
+            throw new NotImplementedException();
+        }
 
-            if (key == null)
+        private static string GetJwtRequirements()
+        {
+            var primaryVerificationKey = ConfigurationManager.AppSettings["JWTRestrictionPrimaryVerificationKey"];
+            var audience = ConfigurationManager.AppSettings["JWTRestrictionAudience"];
+            var issuer = ConfigurationManager.AppSettings["JWTRestrictionIssuer"];
+
+            var template = new TokenRestrictionTemplate(TokenType.JWT)
             {
-                var keyId = Guid.NewGuid();
-                var contentKey = GetRandomBuffer(CommonEncryptionContentKeyLength);
+                PrimaryVerificationKey = new SymmetricVerificationKey(EncodeUtilities.Base64UrlDecode(primaryVerificationKey)),
+                Audience = audience,
+                Issuer = issuer
+            };
 
-                key = await context.ContentKeys.CreateAsync(keyId, contentKey, CommonEncryptionContentKeyName, ContentKeyType.CommonEncryption);
-            }
+            return TokenRestrictionTemplateSerializer.Serialize(template);
+        }
 
-            return key;
+        private static async Task<IContentKey> CreateCommonEncryptionContentKey(MediaContextBase context)
+        {
+            var keyId = Guid.NewGuid();
+            var contentKey = GetRandomBuffer(CommonEncryptionContentKeyLength);
+
+            return await context.ContentKeys.CreateAsync(keyId, contentKey, CommonEncryptionContentKeyName, ContentKeyType.CommonEncryption);
         }
 
         private static byte[] GetRandomBuffer(int length)
@@ -189,6 +187,20 @@ namespace AzureMediaServicesConfigurationTool
             }
 
             return returnValue;
+        }
+
+        private static string GetWidevineLicenseTemplateConfiguration()
+        {
+            var widevineLicenseTemplatePath = ConfigurationManager.AppSettings["WidevineLicenseTemplatePath"];
+
+            return File.ReadAllText(widevineLicenseTemplatePath);
+        }
+
+        private static string GetPlayReadyLicenseTemplateConfiguration()
+        {
+            var playReadyLicenseTemplatePath = ConfigurationManager.AppSettings["PlayReadyLicenseTemplatePath"];
+
+            return File.ReadAllText(playReadyLicenseTemplatePath);
         }
     }
 }
