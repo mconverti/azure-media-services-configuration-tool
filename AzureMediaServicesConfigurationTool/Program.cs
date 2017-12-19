@@ -18,7 +18,7 @@ namespace AzureMediaServicesConfigurationTool
 {
     public static class Program
     {
-        private const string ContentKeyPrefix = "nb:ckpid:UUID:";
+        private const string ContentKeyPrefix = "nb:kid:UUID:";
         private const string ContentKeyAuthorizationPolicyRestrictionName = "jwt_content_key_authorization_policy_restriction";
 
         private const string CommonEncryptionContentKeyName = "common_encryption_content_key";
@@ -52,6 +52,9 @@ namespace AzureMediaServicesConfigurationTool
             {
                 Console.Error.WriteLine($"There was an error when applying the configuration. {exception.ToString()}");
             }
+
+            Console.WriteLine("Done.");
+            Console.ReadKey();
         }
 
         private static CloudMediaContext CreateCloudMediaContext()
@@ -199,7 +202,7 @@ namespace AzureMediaServicesConfigurationTool
 
             // Asset Delivery Policy
             var commonEncryptionCbcsKey = await CreateCommonEncryptionCbcsContentKeyAsync(context);
-            var acquisitionUri = commonEncryptionCbcsKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.FairPlay);
+            var acquisitionUri = await commonEncryptionCbcsKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.FairPlay);
             await commonEncryptionCbcsKey.DeleteAsync();
 
             var deliveryPolicyConfiguration = new Dictionary<AssetDeliveryPolicyConfigurationKey, string>
