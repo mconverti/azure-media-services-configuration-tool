@@ -1,11 +1,14 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Configuration;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 
 using Microsoft.WindowsAzure.MediaServices.Client;
 using Microsoft.WindowsAzure.MediaServices.Client.ContentKeyAuthorization;
+using Microsoft.WindowsAzure.MediaServices.Client.DynamicEncryption;
 
 namespace AzureMediaServicesConfigurationTool
 {
@@ -22,15 +25,14 @@ namespace AzureMediaServicesConfigurationTool
 
             // TODO: Scale Streaming Endpoint?
             // TODO: Scale Encoding Units?
-            
+
             var jwtRestriction = GetContentKeyAuthorizationPolicyRestriction();
+            var restrictions = new List<ContentKeyAuthorizationPolicyRestriction> { jwtRestriction };
 
-            // Configure Widevine
-            await CreateOrUpdateWidevinePoliciesAsync(context, jwtRestriction);
+            // Configure Common Encryption polices: Widevine + PlayReady
+            await CreateCommonEncryptionPoliciesAsync(context, restrictions);
 
-            // TODO: Configure PlayReady
-
-            // TODO: Configure FairPlay
+            // TODO: Configure Common Encryption CBCS polices: FairPlay
         }
 
         private static CloudMediaContext CreateCloudMediaContext()
@@ -75,23 +77,91 @@ namespace AzureMediaServicesConfigurationTool
             return TokenRestrictionTemplateSerializer.Serialize(template);
         }
 
-        private static async Task CreateOrUpdateWidevinePoliciesAsync(MediaContextBase context, ContentKeyAuthorizationPolicyRestriction jwtRestriction)
+        private static async Task CreateCommonEncryptionPoliciesAsync(MediaContextBase context, List<ContentKeyAuthorizationPolicyRestriction> restrictions)
         {
+            // Content Key Authorization Policy
             var authorizationPolicyName = ConfigurationManager.AppSettings["CommonEncryptionAuthorizationPolicyName"];
-            var authorizationPolicyOptionName = ConfigurationManager.AppSettings["WidevineAuthorizationPolicyOptionName"];
-
-            var deliveryPolicyName = ConfigurationManager.AppSettings["DynamicCommonEncryptionDeliveryPolicyName"];
-            var licenseTemplatePath = ConfigurationManager.AppSettings["WidevineLicenseTemplatePath"];
-
             var authorizationPolicy = context.ContentKeyAuthorizationPolicies.Where(p => p.Name == authorizationPolicyName).FirstOrDefault();
             if (authorizationPolicy == null)
             {
-                
+                authorizationPolicy = await context.ContentKeyAuthorizationPolicies.CreateAsync(authorizationPolicyName);
             }
 
-            var key = await GetOrCreateCommonEncryptionContentKey(context);
+            var widevineAuthorizationPolicyOptionName = ConfigurationManager.AppSettings["WidevineAuthorizationPolicyOptionName"];
+            var widevineLicenseTemplatePath = ConfigurationManager.AppSettings["WidevineLicenseTemplatePath"];
+            var widevineLicenseTemplate = File.ReadAllText(widevineLicenseTemplatePath);
+            var widevineAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == widevineAuthorizationPolicyOptionName).FirstOrDefault();
+            if (widevineAuthorizationPolicyOption == null)
+            {
+                widevineAuthorizationPolicyOption = await context.ContentKeyAuthorizationPolicyOptions.CreateAsync(
+                    widevineAuthorizationPolicyOptionName,
+                    ContentKeyDeliveryType.Widevine,
+                    restrictions,
+                    widevineLicenseTemplate);
 
-            // TODO
+                authorizationPolicy.Options.Add(widevineAuthorizationPolicyOption);
+            }
+            else
+            {
+                widevineAuthorizationPolicyOption.KeyDeliveryType = ContentKeyDeliveryType.Widevine;
+                widevineAuthorizationPolicyOption.Restrictions = restrictions;
+                widevineAuthorizationPolicyOption.KeyDeliveryConfiguration = widevineLicenseTemplate;
+
+                await widevineAuthorizationPolicyOption.UpdateAsync();
+            }
+
+            var playReadyAuthorizationPolicyOptionName = ConfigurationManager.AppSettings["PlayReadyAuthorizationPolicyOptionName"];
+            var playReadyLicenseTemplatePath = ConfigurationManager.AppSettings["PlayReadyLicenseTemplatePath"];
+            var playReadyLicenseTemplate = File.ReadAllText(playReadyLicenseTemplatePath);
+            var playReadyAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == playReadyAuthorizationPolicyOptionName).FirstOrDefault();
+            if (playReadyAuthorizationPolicyOption == null)
+            {
+                playReadyAuthorizationPolicyOption = await context.ContentKeyAuthorizationPolicyOptions.CreateAsync(
+                    playReadyAuthorizationPolicyOptionName,
+                    ContentKeyDeliveryType.PlayReadyLicense,
+                    restrictions,
+                    playReadyLicenseTemplate);
+
+                authorizationPolicy.Options.Add(playReadyAuthorizationPolicyOption);
+            }
+            else
+            {
+                playReadyAuthorizationPolicyOption.KeyDeliveryType = ContentKeyDeliveryType.PlayReadyLicense;
+                playReadyAuthorizationPolicyOption.Restrictions = restrictions;
+                playReadyAuthorizationPolicyOption.KeyDeliveryConfiguration = playReadyLicenseTemplate;
+
+                await playReadyAuthorizationPolicyOption.UpdateAsync();
+            }
+
+            // Asset Delivery Policy
+            var commonEncryptionKey = await GetOrCreateCommonEncryptionContentKey(context);
+            var playReadyLicenseAcquisitionUri = await commonEncryptionKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.PlayReadyLicense);
+            var widevineUri = (new UriBuilder(await commonEncryptionKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.Widevine)) { Query = string.Empty }).Uri;
+            await commonEncryptionKey.DeleteAsync();
+
+            var deliveryPolicyConfiguration = new Dictionary<AssetDeliveryPolicyConfigurationKey, string>
+            {
+                { AssetDeliveryPolicyConfigurationKey.PlayReadyLicenseAcquisitionUrl, playReadyLicenseAcquisitionUri.ToString() },
+                { AssetDeliveryPolicyConfigurationKey.WidevineBaseLicenseAcquisitionUrl, widevineUri.ToString() }
+            };
+            var deliveryPolicyName = ConfigurationManager.AppSettings["DynamicCommonEncryptionDeliveryPolicyName"];
+            var deliveryPolicy = context.AssetDeliveryPolicies.Where(p => p.Name == deliveryPolicyName).FirstOrDefault();
+            if (deliveryPolicy == null)
+            {
+                deliveryPolicy = await context.AssetDeliveryPolicies.CreateAsync(
+                    deliveryPolicyName,
+                    AssetDeliveryPolicyType.DynamicCommonEncryption,
+                    AssetDeliveryProtocol.Dash,
+                    deliveryPolicyConfiguration);
+            }
+            else
+            {
+                deliveryPolicy.AssetDeliveryPolicyType = AssetDeliveryPolicyType.DynamicCommonEncryption;
+                deliveryPolicy.AssetDeliveryProtocol = AssetDeliveryProtocol.Dash;
+                deliveryPolicy.AssetDeliveryConfiguration = deliveryPolicyConfiguration;
+
+                await deliveryPolicy.UpdateAsync();
+            }
         }
 
         private static async Task<IContentKey> GetOrCreateCommonEncryptionContentKey(MediaContextBase context)
