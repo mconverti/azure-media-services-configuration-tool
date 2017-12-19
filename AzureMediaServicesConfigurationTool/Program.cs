@@ -229,7 +229,7 @@ namespace AzureMediaServicesConfigurationTool
 
         private static string GetJwtRequirements()
         {
-            var primaryVerificationKey = ConfigurationManager.AppSettings["JWTRestrictionPrimaryVerificationKey"];
+            var primaryVerificationKey = ConfigurationManager.AppSettings["JWTRestrictionPrimaryVerificationKeyBase64"];
             var audience = ConfigurationManager.AppSettings["JWTRestrictionAudience"];
             var issuer = ConfigurationManager.AppSettings["JWTRestrictionIssuer"];
 
@@ -290,7 +290,7 @@ namespace AzureMediaServicesConfigurationTool
             var previousAskKey = default(IContentKey);
             var askKeyId = Guid.NewGuid();
             var askKeyName = ConfigurationManager.AppSettings["FairPlayASKContentKeyName"];
-            var askBytes = Encoding.UTF8.GetBytes(ConfigurationManager.AppSettings["FairPlayASK"]);
+            var askBytes = Convert.FromBase64String(ConfigurationManager.AppSettings["FairPlayASKBase64"]);
             var askKey = context.ContentKeys.Where(k => k.Name == askKeyName).FirstOrDefault();
             if (askKey == null)
             {
