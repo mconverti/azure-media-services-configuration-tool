@@ -319,14 +319,14 @@ namespace AzureMediaServicesConfigurationTool
                 appCertPasswordKeyId = Guid.Parse(appCertPasswordKey.Id.Replace(ContentKeyPrefix, string.Empty));
             }
 
-            var iv = Guid.NewGuid().ToByteArray();
+            var contentEncryptionIv = Guid.NewGuid().ToByteArray();
             var appCert = new X509Certificate2(ConfigurationManager.AppSettings["FairPlayAppCertPath"], appCertPassword, X509KeyStorageFlags.Exportable);
             var configuration = FairPlayConfiguration.CreateSerializedFairPlayOptionConfiguration(
                 appCert,
                 appCertPassword,
                 appCertPasswordKeyId,
                 askKeyId,
-                iv);
+                contentEncryptionIv);
 
             if (previousAskKey != null)
             {
