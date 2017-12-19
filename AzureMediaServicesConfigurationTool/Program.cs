@@ -29,6 +29,10 @@ namespace AzureMediaServicesConfigurationTool
         {
             try
             {
+                Console.WriteLine("Azure Media Services Configuration Tool");
+                Console.WriteLine("=======================================");
+                Console.WriteLine();
+
                 Console.WriteLine("Creating Azure Media Services context...");
                 var context = CreateCloudMediaContext();
                 Console.WriteLine("Azure Media Services context created.");
@@ -53,6 +57,7 @@ namespace AzureMediaServicesConfigurationTool
                 Console.Error.WriteLine($"There was an error when applying the configuration. {exception.ToString()}");
             }
 
+            Console.WriteLine();
             Console.WriteLine("Done.");
             Console.ReadKey();
         }
