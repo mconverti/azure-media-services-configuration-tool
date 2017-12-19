@@ -1,0 +1,9 @@
+{
+  "allowed_track_types": "SD_HD",
+  "policy_overrides": {
+    "can_play": true,
+    "can_persist": true,
+    "can_renew": false
+  },
+  "content_key_specs": [ { "required_output_protection": { "hdcp": "HDCP_NONE" } } ]
+}
