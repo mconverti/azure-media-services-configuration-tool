@@ -16,7 +16,7 @@ using Newtonsoft.Json;
 
 namespace AzureMediaServicesConfigurationTool
 {
-    public class Program
+    public static class Program
     {
         private const string ContentKeyPrefix = "nb:ckpid:UUID:";
         private const string ContentKeyAuthorizationPolicyRestrictionName = "jwt_content_key_authorization_policy_restriction";
@@ -290,7 +290,7 @@ namespace AzureMediaServicesConfigurationTool
             var previousAskKey = default(IContentKey);
             var askKeyId = Guid.NewGuid();
             var askKeyName = ConfigurationManager.AppSettings["FairPlayASKContentKeyName"];
-            var askBytes = Convert.FromBase64String(ConfigurationManager.AppSettings["FairPlayASKBase64"]);
+            var askBytes = HexadecimalStringToByteArray(ConfigurationManager.AppSettings["FairPlayASKHexadecimal"]);
             var askKey = context.ContentKeys.Where(k => k.Name == askKeyName).FirstOrDefault();
             if (askKey == null)
             {
@@ -350,6 +350,14 @@ namespace AzureMediaServicesConfigurationTool
             }
 
             return JsonConvert.DeserializeObject<FairPlayConfiguration>(configuration);
+        }
+
+        public static byte[] HexadecimalStringToByteArray(string hexadecimal)
+        {
+            return Enumerable.Range(0, hexadecimal.Length)
+                .Where(x => x % 2 == 0)
+                .Select(x => Convert.ToByte(hexadecimal.Substring(x, 2), 16))
+                .ToArray();
         }
     }
 }
