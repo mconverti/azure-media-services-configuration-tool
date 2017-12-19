@@ -27,20 +27,31 @@ namespace AzureMediaServicesConfigurationTool
 
         public static async Task Main(string[] args)
         {
-            // TODO: Add console logs
+            try
+            {
+                Console.WriteLine("Creating Azure Media Services context...");
+                var context = CreateCloudMediaContext();
+                Console.WriteLine("Azure Media Services context created.");
 
-            var context = CreateCloudMediaContext();
+                // TODO: Scale Streaming Endpoint?
+                // TODO: Scale Encoding Units?
 
-            // TODO: Scale Streaming Endpoint?
-            // TODO: Scale Encoding Units?
+                Console.WriteLine("Getting JWT restriction configuration...");
+                var restrictions = new List<ContentKeyAuthorizationPolicyRestriction> { GetContentKeyAuthorizationPolicyRestriction() };
+                Console.WriteLine("JWT restriction configuration ready.");
 
-            var restrictions = new List<ContentKeyAuthorizationPolicyRestriction> { GetContentKeyAuthorizationPolicyRestriction() };
+                Console.WriteLine("Applying Common Encryption (Widevine + PlayReady) policies...");
+                await CreateCommonEncryptionPoliciesAsync(context, restrictions);
+                Console.WriteLine("Common Encryption (Widevine + PlayReady) policies applied.");
 
-            // Configure Common Encryption polices: Widevine + PlayReady
-            await CreateCommonEncryptionPoliciesAsync(context, restrictions);
-
-            // Configure Common Encryption CBCS polices: FairPlay
-            await CreateCommonEncryptionCbcsPoliciesAsync(context, restrictions);
+                Console.WriteLine("Applying Common Encryption CBCS (FairPlay) policies...");
+                await CreateCommonEncryptionCbcsPoliciesAsync(context, restrictions);
+                Console.WriteLine("Common Encryption CBCS (FairPlay) policies applied.");
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine($"There was an error when applying the configuration. {exception.ToString()}");
+            }
         }
 
         private static CloudMediaContext CreateCloudMediaContext()
