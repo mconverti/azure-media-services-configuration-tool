@@ -93,6 +93,7 @@ namespace AzureMediaServicesConfigurationTool
             // Content Key Authorization Policy
             var authorizationPolicyName = ConfigurationManager.AppSettings["CommonEncryptionAuthorizationPolicyName"];
             var authorizationPolicy = context.ContentKeyAuthorizationPolicies.Where(p => p.Name == authorizationPolicyName).FirstOrDefault();
+
             if (authorizationPolicy == null)
             {
                 authorizationPolicy = await context.ContentKeyAuthorizationPolicies.CreateAsync(authorizationPolicyName);
@@ -101,6 +102,7 @@ namespace AzureMediaServicesConfigurationTool
             var widevineAuthorizationPolicyOptionName = ConfigurationManager.AppSettings["WidevineAuthorizationPolicyOptionName"];
             var widevineLicenseTemplate = GetWidevineLicenseTemplateConfiguration();
             var widevineAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == widevineAuthorizationPolicyOptionName).FirstOrDefault();
+
             if (widevineAuthorizationPolicyOption == null)
             {
                 widevineAuthorizationPolicyOption = await context.ContentKeyAuthorizationPolicyOptions.CreateAsync(
@@ -123,6 +125,7 @@ namespace AzureMediaServicesConfigurationTool
             var playReadyAuthorizationPolicyOptionName = ConfigurationManager.AppSettings["PlayReadyAuthorizationPolicyOptionName"];
             var playReadyLicenseTemplate = GetPlayReadyLicenseTemplateConfiguration();
             var playReadyAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == playReadyAuthorizationPolicyOptionName).FirstOrDefault();
+
             if (playReadyAuthorizationPolicyOption == null)
             {
                 playReadyAuthorizationPolicyOption = await context.ContentKeyAuthorizationPolicyOptions.CreateAsync(
@@ -153,8 +156,10 @@ namespace AzureMediaServicesConfigurationTool
                 { AssetDeliveryPolicyConfigurationKey.PlayReadyLicenseAcquisitionUrl, playReadyLicenseAcquisitionUri.ToString() },
                 { AssetDeliveryPolicyConfigurationKey.WidevineBaseLicenseAcquisitionUrl, widevineUri.ToString() }
             };
+
             var deliveryPolicyName = ConfigurationManager.AppSettings["DynamicCommonEncryptionDeliveryPolicyName"];
             var deliveryPolicy = context.AssetDeliveryPolicies.Where(p => p.Name == deliveryPolicyName).FirstOrDefault();
+
             if (deliveryPolicy == null)
             {
                 deliveryPolicy = await context.AssetDeliveryPolicies.CreateAsync(
@@ -175,9 +180,18 @@ namespace AzureMediaServicesConfigurationTool
 
         private static async Task CreateCommonEncryptionCbcsPoliciesAsync(MediaContextBase context, List<ContentKeyAuthorizationPolicyRestriction> restrictions)
         {
+            var fairPlayEnabled = bool.Parse(ConfigurationManager.AppSettings["FairPlayEnabled"]);
+
+            if (!fairPlayEnabled)
+            {
+                Console.WriteLine("Skipping Common Encryption CBCS (FairPlay) policies configuration (disabled by conf)");
+                return;
+            }
+
             // Content Key Authorization Policy
             var authorizationPolicyName = ConfigurationManager.AppSettings["CommonEncryptionCbcsAuthorizationPolicyName"];
             var authorizationPolicy = context.ContentKeyAuthorizationPolicies.Where(p => p.Name == authorizationPolicyName).FirstOrDefault();
+
             if (authorizationPolicy == null)
             {
                 authorizationPolicy = await context.ContentKeyAuthorizationPolicies.CreateAsync(authorizationPolicyName);
@@ -186,6 +200,7 @@ namespace AzureMediaServicesConfigurationTool
             var fairPlayAuthorizationPolicyOptionName = ConfigurationManager.AppSettings["FairPlayAuthorizationPolicyOptionName"];
             var fairPlayConfiguration = await GetFairPlayConfigurationAsync(context);
             var fariPlayAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == fairPlayAuthorizationPolicyOptionName).FirstOrDefault();
+
             if (fariPlayAuthorizationPolicyOption == null)
             {
                 fariPlayAuthorizationPolicyOption = await context.ContentKeyAuthorizationPolicyOptions.CreateAsync(
@@ -215,8 +230,10 @@ namespace AzureMediaServicesConfigurationTool
                 { AssetDeliveryPolicyConfigurationKey.FairPlayLicenseAcquisitionUrl, acquisitionUri.ToString().Replace("https://", "skd://") },
                 { AssetDeliveryPolicyConfigurationKey.CommonEncryptionIVForCbcs, fairPlayConfiguration.ContentEncryptionIV }
             };
+
             var deliveryPolicyName = ConfigurationManager.AppSettings["DynamicCommonEncryptionCbcsDeliveryPolicyName"];
             var deliveryPolicy = context.AssetDeliveryPolicies.Where(p => p.Name == deliveryPolicyName).FirstOrDefault();
+
             if (deliveryPolicy == null)
             {
                 deliveryPolicy = await context.AssetDeliveryPolicies.CreateAsync(
@@ -300,6 +317,7 @@ namespace AzureMediaServicesConfigurationTool
             var askKeyName = ConfigurationManager.AppSettings["FairPlayASKContentKeyName"];
             var askBytes = HexadecimalStringToByteArray(ConfigurationManager.AppSettings["FairPlayASKHexadecimal"]);
             var askKey = context.ContentKeys.Where(k => k.Name == askKeyName).FirstOrDefault();
+
             if (askKey == null)
             {
                 askKey = await context.ContentKeys.CreateAsync(askKeyId, askBytes, askKeyName, ContentKeyType.FairPlayASk);
@@ -322,6 +340,7 @@ namespace AzureMediaServicesConfigurationTool
             var appCertPassword = ConfigurationManager.AppSettings["FairPlayAppCertPassword"];
             var appCertPasswordBytes = Encoding.UTF8.GetBytes(appCertPassword);
             var appCertPasswordKey = context.ContentKeys.Where(k => k.Name == appCertPasswordKeyName).FirstOrDefault();
+
             if (appCertPasswordKey == null)
             {
                 appCertPasswordKey = await context.ContentKeys.CreateAsync(appCertPasswordKeyId, appCertPasswordBytes, appCertPasswordKeyName, ContentKeyType.FairPlayPfxPassword);
