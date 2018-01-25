@@ -165,13 +165,13 @@ namespace AzureMediaServicesConfigurationTool
                 deliveryPolicy = await context.AssetDeliveryPolicies.CreateAsync(
                     deliveryPolicyName,
                     AssetDeliveryPolicyType.DynamicCommonEncryption,
-                    AssetDeliveryProtocol.Dash,
+                    (AssetDeliveryProtocol.Dash | AssetDeliveryProtocol.SmoothStreaming),
                     deliveryPolicyConfiguration);
             }
             else
             {
                 deliveryPolicy.AssetDeliveryPolicyType = AssetDeliveryPolicyType.DynamicCommonEncryption;
-                deliveryPolicy.AssetDeliveryProtocol = AssetDeliveryProtocol.Dash;
+                deliveryPolicy.AssetDeliveryProtocol = (AssetDeliveryProtocol.Dash | AssetDeliveryProtocol.SmoothStreaming);
                 deliveryPolicy.AssetDeliveryConfiguration = deliveryPolicyConfiguration;
 
                 await deliveryPolicy.UpdateAsync();
