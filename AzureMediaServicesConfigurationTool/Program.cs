@@ -199,35 +199,35 @@ namespace AzureMediaServicesConfigurationTool
 
             var fairPlayAuthorizationPolicyOptionName = ConfigurationManager.AppSettings["FairPlayAuthorizationPolicyOptionName"];
             var fairPlayConfiguration = await GetFairPlayConfigurationAsync(context);
-            var fariPlayAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == fairPlayAuthorizationPolicyOptionName).FirstOrDefault();
+            var fairPlayAuthorizationPolicyOption = authorizationPolicy.Options.Where(o => o.Name == fairPlayAuthorizationPolicyOptionName).FirstOrDefault();
 
-            if (fariPlayAuthorizationPolicyOption == null)
+            if (fairPlayAuthorizationPolicyOption == null)
             {
-                fariPlayAuthorizationPolicyOption = await context.ContentKeyAuthorizationPolicyOptions.CreateAsync(
+                fairPlayAuthorizationPolicyOption = await context.ContentKeyAuthorizationPolicyOptions.CreateAsync(
                     fairPlayAuthorizationPolicyOptionName,
                     ContentKeyDeliveryType.FairPlay,
                     restrictions,
                     JsonConvert.SerializeObject(fairPlayConfiguration));
 
-                authorizationPolicy.Options.Add(fariPlayAuthorizationPolicyOption);
+                authorizationPolicy.Options.Add(fairPlayAuthorizationPolicyOption);
             }
             else
             {
-                fariPlayAuthorizationPolicyOption.KeyDeliveryType = ContentKeyDeliveryType.FairPlay;
-                fariPlayAuthorizationPolicyOption.Restrictions = restrictions;
-                fariPlayAuthorizationPolicyOption.KeyDeliveryConfiguration = JsonConvert.SerializeObject(fairPlayConfiguration);
+                fairPlayAuthorizationPolicyOption.KeyDeliveryType = ContentKeyDeliveryType.FairPlay;
+                fairPlayAuthorizationPolicyOption.Restrictions = restrictions;
+                fairPlayAuthorizationPolicyOption.KeyDeliveryConfiguration = JsonConvert.SerializeObject(fairPlayConfiguration);
 
-                await fariPlayAuthorizationPolicyOption.UpdateAsync();
+                await fairPlayAuthorizationPolicyOption.UpdateAsync();
             }
 
             // Asset Delivery Policy
             var commonEncryptionCbcsKey = await CreateCommonEncryptionCbcsContentKeyAsync(context);
-            var acquisitionUri = await commonEncryptionCbcsKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.FairPlay);
+            var acquisitionUri = (new UriBuilder(await commonEncryptionCbcsKey.GetKeyDeliveryUrlAsync(ContentKeyDeliveryType.FairPlay)) { Query = string.Empty }).Uri;
             await commonEncryptionCbcsKey.DeleteAsync();
 
             var deliveryPolicyConfiguration = new Dictionary<AssetDeliveryPolicyConfigurationKey, string>
             {
-                { AssetDeliveryPolicyConfigurationKey.FairPlayLicenseAcquisitionUrl, acquisitionUri.ToString().Replace("https://", "skd://") },
+                { AssetDeliveryPolicyConfigurationKey.FairPlayBaseLicenseAcquisitionUrl, acquisitionUri.ToString().Replace("https://", "skd://") },
                 { AssetDeliveryPolicyConfigurationKey.CommonEncryptionIVForCbcs, fairPlayConfiguration.ContentEncryptionIV }
             };
 
